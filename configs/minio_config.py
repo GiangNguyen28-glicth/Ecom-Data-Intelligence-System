@@ -31,6 +31,8 @@ class MinioConfig:
             "spark.hadoop.fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
             "spark.sql.hive.manageFilesourcePartitions": "true",
             "spark.sql.sources.partitionOverwriteMode": "dynamic",
+            "spark.hadoop.fs.s3a.connection.timeout": "60000",
+            "spark.hadoop.fs.s3a.connection.establish.timeout": "60000"
         }
         configs.update(self.additional_configs)
         return configs
