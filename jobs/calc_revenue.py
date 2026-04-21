@@ -1,3 +1,5 @@
+import sys
+
 from pyspark.sql.functions import col, broadcast, current_timestamp
 
 from adapters.iceberg_spark_adapter import iceberg_spark_adapter
@@ -11,7 +13,6 @@ class CalcRevenue:
 
     def calc_daily_sold(self):
         now = current_timestamp()
-        now.day = 17
         current_date = Helper.get_current_date()
         process_date = f"{current_date['year']}-{current_date['month']}-{current_date['day']}"
         # process_date = f"{current_date['year']}-{current_date['month']}-17"
@@ -47,3 +48,12 @@ class CalcRevenue:
         )
         result_df.writeTo(PRODUCT_ITEM_DAILY_REVENUE_TABLE).overwritePartitions()
 
+if __name__ == "__main__":
+    job = CalcRevenue()
+
+    mode = sys.argv[1]
+
+    if mode == "calc_daily_sold":
+        job.calc_daily_sold()
+    else:
+        raise ValueError("Invalid mode")

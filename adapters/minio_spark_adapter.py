@@ -9,6 +9,7 @@ class MinioSparkAdapter:
     def create_config(self):
         builder = SparkSession.builder.appName("Minio Spark").master("local[*]")
         for key, value in self.minio_config.to_spark_configs().items():
+            print(key, value)
             builder = builder.config(key, value)
         return builder
 
