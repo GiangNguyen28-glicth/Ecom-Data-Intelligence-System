@@ -14,3 +14,4 @@ apache-airflow-providers-http==4.10.0
 
 pyspark==4.0.0
 apache-airflow-providers-postgres==5.10.0
+pyspark-stubs

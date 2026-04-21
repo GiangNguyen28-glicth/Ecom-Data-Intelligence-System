@@ -1,3 +1,5 @@
+import sys
+
 from pyspark.sql.functions import col, to_json, struct, monotonically_increasing_id, floor, collect_list
 
 from adapters.iceberg_spark_adapter import iceberg_spark_adapter
@@ -9,7 +11,7 @@ class Iceberg2Kafka:
     def __init__(self):
         self.spark = iceberg_spark_adapter.spark
 
-    def load_pid_revenue(self):
+    def pid_revenue_2_kafka(self):
         batch = 10
         current_date = Helper.get_current_date()
         # process_date = f"{current_date['year']}-{current_date['month']}-{current_date['day']}"
@@ -27,3 +29,14 @@ class Iceberg2Kafka:
             .option("topic", "clickhouse_ingest_topic") \
             .save()
         print("Batch Job Completed Successfully!")
+
+
+if __name__ == "__main__":
+    job = Iceberg2Kafka()
+
+    mode = sys.argv[1]
+
+    if mode == "pid_revenue_2_kafka":
+        job.pid_revenue_2_kafka()
+    else:
+        raise ValueError("Invalid mode")

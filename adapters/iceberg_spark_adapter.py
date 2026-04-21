@@ -31,6 +31,7 @@ class IcebergSparkAdapter:
 
     def _create_spark_session(self) -> SparkSession:
         iceberg_config = self._init_iceberg_config()
+        print(iceberg_config)
         minio_spark_adapter = MinioSparkAdapter(iceberg_config)
         spark_session = minio_spark_adapter.create_spark_session()
         return spark_session
