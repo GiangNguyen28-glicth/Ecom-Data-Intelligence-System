@@ -18,9 +18,7 @@ class CalcRevenue:
         # process_date = f"{current_date['year']}-{current_date['month']}-17"
         print("Process date:", process_date)
         daily_df = self.spark.read.table(PRODUCT_ITEM_DAILY_TABLE).filter(col("crawledDateMs") >= process_date)
-        daily_df.show(10)
         state_df = self.spark.read.table(LAST_STATE_PRODUCT_ITEM_TABLE)
-        state_df.show(10)
         joined_df = daily_df.alias("daily").join(
             broadcast(state_df).alias("state"),
             col("daily.id") == col("state.id"),

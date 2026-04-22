@@ -13,6 +13,7 @@ from example.unknown.unknown import Unknown
 from helpers.helpers import Helper
 from jobs.data_transfer import DataTransfer
 from jobs.migrate_parsed_data import MigrateParsedData
+from jobs.transform_raw_data import TransformRawData
 from migrations.report import pid_revenue_ddl
 from jobs.calc_revenue import CalcRevenue
 from jobs.create_report_table import CreateReportTable
@@ -33,7 +34,9 @@ def print_hi(name):
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    dataTransferInstance = DataTransfer()
+    # dataTransferInstance = DataTransfer()
+    transform_raw_data = TransformRawData()
+    transform_raw_data.load()
     # migrate_parsed_data = MigrateParsedData()
     # migrate_parsed_data.migrate_parsed_data()
     # calc_revenue = CalcRevenue()
@@ -48,7 +51,7 @@ if __name__ == '__main__':
     # calc_revenue.calc_daily_sold()
     # iceberg_spark_adapter.truncate_table(PRODUCT_ITEM_DAILY_REVENUE_TABLE)
     # iceberg_spark_adapter.drop_table(PRODUCT_ITEM_DAILY_REVENUE_TABLE)
-    dataTransferInstance.transfer_to_iceberg_latest_pi()
+    # dataTransferInstance.transfer_to_iceberg_latest_pi()
     # current_date = Helper.get_current_date()
     # bucket = Helper.get_bucket(PARSED_BUCKET)
     # df = iceberg_spark_adapter.spark.read.parquet(f"s3a://parsed-data/2026/04/17/00de3f9e-f87d-4b3d-8ccf-103aa4cc3e68").show(1000)
