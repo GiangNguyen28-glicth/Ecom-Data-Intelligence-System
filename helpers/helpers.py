@@ -1,6 +1,5 @@
 import datetime
 
-
 class Helper:
     @staticmethod
     def get_bucket(bucket_name) -> str:

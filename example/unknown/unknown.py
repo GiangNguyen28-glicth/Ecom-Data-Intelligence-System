@@ -1,6 +1,4 @@
-from pyspark.sql.dataframe import DataFrame
 from pyspark.sql.functions import col, year, month, dayofmonth
-
 from adapters.minio_spark_adapter import minio_spark_adapter
 
 

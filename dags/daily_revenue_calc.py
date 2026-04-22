@@ -1,11 +1,16 @@
+from dataclasses import asdict
+from functools import partial
+
 from airflow import DAG
+from airflow.exceptions import AirflowSkipException
 from airflow.operators.python import PythonOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from psycopg2.extras import Json
+
 from common.constants import JOB_STATUS, POSTGRESQL_CONN, CALC_DAILY_REVENUE_PROCESS, SPARK_AIRFLOW_DEFAULT_CONFIG
 from helpers.helpers import Helper
-from model.job import Job
+from model.job import Job, JobUpdate
 from repositories.job_repository import JobRepository
 
 default_args = {
@@ -13,9 +18,11 @@ default_args = {
     "retries": 5
 }
 
+hook = PostgresHook(postgres_conn_id=POSTGRESQL_CONN)
+conn = hook.get_conn()
+
+
 def init_job_tracking(**context):
-    hook = PostgresHook(postgres_conn_id=POSTGRESQL_CONN)
-    conn = hook.get_conn()
     job_repo = JobRepository(conn=conn)
 
     job_name = context["dag"].dag_id
@@ -25,12 +32,16 @@ def init_job_tracking(**context):
     process_date = logical_date.strftime("%Y-%m-%d")
     job_id = f"{job_name}_{process_date}"
     tracking_job = job_repo.find_by_id(job_id)
-    metadata = {
-        "process_completed": ["INIT JOB COMPLETED"],
-    }
     if tracking_job is not None:
         print(f"Tracking job {tracking_job.id} has been initiated")
-        return
+        return {
+            "id": tracking_job.id,
+            "status": tracking_job.status,
+            "metadata": tracking_job.metadata
+        }
+    metadata = {
+        "process_completed": ["INIT JOB COMPLETED"]
+    }
     job = Job(
         name=job_name,
         run_id=run_id,
@@ -40,8 +51,40 @@ def init_job_tracking(**context):
         id=job_id,
         metadata=Json(metadata)
     )
-
     job_repo.create(job)
+    return {
+        "id": job.id,
+        "status": job.status,
+        "metadata": {
+            "process_completed": ["INIT JOB COMPLETED"]
+        }
+    }
+
+
+def update_job_process(process, context):
+    tracking_job = context["ti"].xcom_pull(
+        task_ids="init_job_tracking"
+    )
+    print(f"Tracking job {tracking_job}")
+    job_repo = JobRepository(conn=conn)
+    job_exists = asdict(job_repo.find_by_id(tracking_job['id']))
+    metadata = job_exists['metadata'] or {}
+    process_completed = metadata['process_completed'] or []
+    process_completed.append(process)
+    metadata['process_completed'] = process_completed
+    tracking_job["metadata"] = Json(metadata)
+    job = JobUpdate(id=tracking_job["id"], status=JOB_STATUS["RUNNING"], metadata=tracking_job["metadata"])
+    print(f" job {job}")
+    job_repo.update(job)
+
+
+def check_and_skip_if_done(process, context):
+    job = context["ti"].xcom_pull(task_ids="init_job_tracking")
+    metadata = job['metadata'] or {}
+    process_completed = metadata['process_completed'] or []
+    if process in process_completed:
+        raise AirflowSkipException(f"Skipped because {process} is already completed.")
+
 
 with DAG(
         dag_id="daily_revenue_calc",
@@ -59,8 +102,13 @@ with DAG(
         application='/opt/airflow/project/jobs/data_transfer.py',
         deploy_mode='client',
         application_args=["transfer_to_iceberg_pid"],
+        trigger_rule="none_failed",
+        pre_execute=partial(check_and_skip_if_done,
+                            CALC_DAILY_REVENUE_PROCESS["TRANSFER_DATA_DAILY_SNAPSHOT_TO_ICEBERG"]),
+        on_success_callback=partial(
+            update_job_process, CALC_DAILY_REVENUE_PROCESS["TRANSFER_DATA_DAILY_SNAPSHOT_TO_ICEBERG"]),
         conf={
-           **SPARK_AIRFLOW_DEFAULT_CONFIG
+            **SPARK_AIRFLOW_DEFAULT_CONFIG
         }
     )
 
@@ -70,6 +118,11 @@ with DAG(
         application='/opt/airflow/project/jobs/calc_revenue.py',
         deploy_mode='client',
         application_args=["calc_daily_sold"],
+        trigger_rule="none_failed",
+        pre_execute=partial(check_and_skip_if_done,
+                            CALC_DAILY_REVENUE_PROCESS["CALC_DALY_REVENUE"]),
+        on_success_callback=partial(
+            update_job_process, CALC_DAILY_REVENUE_PROCESS["CALC_DALY_REVENUE"]),
         conf={
             **SPARK_AIRFLOW_DEFAULT_CONFIG
         }
@@ -81,6 +134,11 @@ with DAG(
         application='/opt/airflow/project/jobs/data_transfer.py',
         deploy_mode='client',
         application_args=["transfer_to_iceberg_latest_pi"],
+        trigger_rule="none_failed",
+        pre_execute=partial(check_and_skip_if_done,
+                            CALC_DAILY_REVENUE_PROCESS["TRANSFER_DATA_DAILY_SNAPSHOT_TO_LATEST"]),
+        on_success_callback=partial(
+            update_job_process, CALC_DAILY_REVENUE_PROCESS["TRANSFER_DATA_DAILY_SNAPSHOT_TO_LATEST"]),
         conf={
             **SPARK_AIRFLOW_DEFAULT_CONFIG
         }
@@ -91,10 +149,14 @@ with DAG(
         conn_id='spark_default',
         application='/opt/airflow/project/jobs/iceberg_2_kafka.py',
         deploy_mode='client',
+        trigger_rule="none_failed",
         application_args=["pid_revenue_2_kafka"],
+        pre_execute=partial(check_and_skip_if_done,
+                            CALC_DAILY_REVENUE_PROCESS["TRANSFER_DAILY_REVENUE_DATA_TO_KAFKA"]),
+        on_success_callback=partial(
+            update_job_process, CALC_DAILY_REVENUE_PROCESS["TRANSFER_DAILY_REVENUE_DATA_TO_KAFKA"]),
         conf={
             **SPARK_AIRFLOW_DEFAULT_CONFIG
         }
     )
-
     init_job >> transfer_to_iceberg_pid >> calc_daily_revenue >> transfer_to_iceberg_latest_pi >> pid_revenue_2_kafka

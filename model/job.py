@@ -1,3 +1,5 @@
+from typing import Optional
+
 from psycopg2.extras import Json
 from dataclasses import dataclass
 
@@ -11,3 +13,13 @@ class Job:
     start_time: str
     process_at: str
     metadata: Json
+
+@dataclass
+class JobUpdate:
+    id: str
+    name: Optional[str] = None
+    run_id: Optional[str] = None
+    status: Optional[str] = None
+    start_time: Optional[str] = None
+    process_at: Optional[str] = None
+    metadata: Optional[Json] = None

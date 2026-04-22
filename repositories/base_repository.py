@@ -101,7 +101,6 @@ class BaseRepository(ABC, Generic[T]):
             .returning("*")
             .build_update(data, self.primary_key)
         )
-        print(query)
         rows = self._execute(query, params)
         return self._from_row(rows[0]) if rows else None
 
