@@ -32,7 +32,11 @@ class MinioConfig:
             "spark.sql.hive.manageFilesourcePartitions": "true",
             "spark.sql.sources.partitionOverwriteMode": "dynamic",
             "spark.hadoop.fs.s3a.connection.timeout": "60000",
-            "spark.hadoop.fs.s3a.connection.establish.timeout": "60000"
+            "spark.hadoop.fs.s3a.connection.establish.timeout": "60000",
+            "spark.sql.adaptive.coalescePartitions.enabled": "true",
+            "spark.sql.adaptive.enabled": "true",
+            "spark.sql.adaptive.coalescePartitions.minPartitionSize": "64mb",
+            "spark.sql.adaptive.advisoryPartitionSizeInBytes": "128mb"
         }
         configs.update(self.additional_configs)
         return configs

@@ -1,3 +1,5 @@
+from pyspark.sql.classic.dataframe import DataFrame
+from pyspark.sql.functions import to_date, col
 from pyspark.sql.session import SparkSession
 from pyspark.sql.types import StructType
 
@@ -48,5 +50,27 @@ class IcebergSparkAdapter:
 
     def truncate_table(self, table_name: str):
         self.spark.sql(f"TRUNCATE TABLE {table_name}")
+
+    def traverse_table(self, table_name: str) -> DataFrame:
+        return self.spark.sql(f"SELECT * FROM {table_name}.snapshots ORDER BY committed_at DESC;")
+
+    def rollback_table(self, table_name: str, timestamp) -> str:
+        return  f"CALL system.rollback_to_timestamp({table_name},TIMESTAMP '{timestamp})"
+
+    def get_table_by_version(self, table_name: str, snapshot_id: str) -> DataFrame:
+        return self.spark.sql(f"SELECT * FROM {table_name} VERSION AS OF {snapshot_id}")
+
+    def get_latest_snapshot_by_date(self, table_name: str, process_date: str) -> DataFrame:
+        df = self.traverse_table(table_name)
+        result = (
+            df.filter(to_date(col("committed_at")) == process_date)
+            .orderBy(col("committed_at").desc())
+            .select("snapshot_id")
+            .limit(1)
+            .collect()
+        )
+        if not result:
+            raise ValueError(f"No snapshot found for date {process_date}")
+        return result[0]["snapshot_id"]
 
 iceberg_spark_adapter = IcebergSparkAdapter()

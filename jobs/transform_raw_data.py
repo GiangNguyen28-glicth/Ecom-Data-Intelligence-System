@@ -1,4 +1,8 @@
-from pyspark.sql.functions import col, from_json, explode, concat_ws, current_timestamp, unix_timestamp, lit
+import json
+import sys
+
+from pyspark.sql.functions import col, from_json, explode, concat_ws, lit, split, \
+    to_timestamp, month, year, dayofmonth
 
 from adapters.iceberg_spark_adapter import iceberg_spark_adapter
 from common.constants import RAW_BUCKET
@@ -10,14 +14,23 @@ class TransformRawData:
     def __init__(self):
         self.spark = iceberg_spark_adapter.spark
 
-    def load(self):
+    def transform_raw_2_parsed_data(self, config):
         bucket = Helper.get_bucket(RAW_BUCKET)
-        current_date = Helper.get_current_date()
+        from_date = config["from_date"]
+        to_date = config["to_date"]
+        target_bucket = config["target_bucket"]
+        from_year, from_month, from_day = [int(x) for x in from_date.split("-")]
+        to_year, to_month, to_day = [int(x) for x in to_date.split("-")]
         df = self.spark.read.schema(raw_content_schema).parquet(bucket)
         df = df.filter(
-            (col("year") == current_date["year"]) &
-            (col("month") == current_date["month"]) &
-            (col("day") == current_date["day"]))
+            (col("year") > from_year) |
+            ((col("year") == from_year) & (col("month") > from_month)) |
+            ((col("year") == from_year) & (col("month") == from_month) & (col("day") >= from_day))
+        ).filter(
+            (col("year") < to_year) |
+            ((col("year") == to_year) & (col("month") < to_month)) |
+            ((col("year") == to_year) & (col("month") == to_month) & (col("day") <= to_day))
+        )
         df_parsed = (
             df
             .withColumn("json", from_json(col("content"), product_item_raw_schema))
@@ -25,6 +38,10 @@ class TransformRawData:
         )
         df_final = (
             df_parsed
+            .withColumn(
+                "normalized_source",
+                split(col("source.source"), "\\.").getItem(0)
+            )
             .withColumn("productItemId", col("item.id"))
             .withColumn("title", col("item.name"))
             .withColumn("link", concat_ws("", lit("https://tiki.vn/"), col("item.url_path")))
@@ -36,10 +53,13 @@ class TransformRawData:
             .withColumn("platformId", concat_ws("_", col("productItemId"), col("shopId")))
             .withColumn(
                 "id",
-                concat_ws("_", lit("tiki"), col("productItemId"), col("shopId"))
+                concat_ws("_", lit(col("normalized_source")), col("productItemId"), col("shopId"))
             )
-            .withColumn("crawledDate", current_timestamp())
-            .withColumn("crawledDateMs", (unix_timestamp() * 1000))
+            .withColumn("crawledDate", to_timestamp(col("crawledDate")))
+            .withColumn("crawledDateMs", to_timestamp(col("crawledDate")))
+            .withColumn("year", year(col("crawledDate")))
+            .withColumn("month", month(col("crawledDate")))
+            .withColumn("day", dayofmonth(col("crawledDate")))
             .select(
                 "id",
                 "title",
@@ -51,8 +71,28 @@ class TransformRawData:
                 "sold",
                 "crawledDate",
                 "crawledDateMs",
-                "thumbnailUrl"
+                "thumbnailUrl",
+                "year",
+                "month",
+                "day",
             )
         )
+        bucket = Helper.get_bucket(target_bucket)
+        df_final.write \
+            .format("parquet") \
+            .mode("overwrite") \
+            .partitionBy("year", "month", "day") \
+            .parquet(bucket)
 
-        df_final.show(10)
+
+if __name__ == "__main__":
+    job = TransformRawData()
+
+    mode = sys.argv[1]
+    config = json.loads(sys.argv[2])
+    print("TransformRawData Mode: ", mode)
+    print("TransformRawData Config: ", config)
+    if mode == "transform_raw_2_parsed_data":
+        job.transform_raw_2_parsed_data(config)
+    else:
+        raise ValueError("Invalid mode")

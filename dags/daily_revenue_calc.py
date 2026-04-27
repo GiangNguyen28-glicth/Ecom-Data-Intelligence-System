@@ -1,3 +1,4 @@
+import json
 from dataclasses import asdict
 from functools import partial
 
@@ -8,7 +9,8 @@ from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOpe
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from psycopg2.extras import Json
 
-from common.constants import JOB_STATUS, POSTGRESQL_CONN, CALC_DAILY_REVENUE_PROCESS, SPARK_AIRFLOW_DEFAULT_CONFIG
+from common.constants import JOB_STATUS, POSTGRESQL_CONN, CALC_DAILY_REVENUE_PROCESS, SPARK_AIRFLOW_DEFAULT_CONFIG, \
+    LAST_STATE_PRODUCT_ITEM_TABLE, PRODUCT_ITEM_DAILY_TABLE, PRODUCT_ITEM_DAILY_REVENUE_TABLE, PARSED_BUCKET
 from helpers.helpers import Helper
 from model.job import Job, JobUpdate
 from repositories.job_repository import JobRepository
@@ -24,7 +26,6 @@ conn = hook.get_conn()
 
 def init_job_tracking(**context):
     job_repo = JobRepository(conn=conn)
-
     job_name = context["dag"].dag_id
     run_id = context["run_id"]
     current_date = Helper.get_current_date()
@@ -74,6 +75,8 @@ def update_job_process(process, context):
     metadata['process_completed'] = process_completed
     tracking_job["metadata"] = Json(metadata)
     job = JobUpdate(id=tracking_job["id"], status=JOB_STATUS["RUNNING"], metadata=tracking_job["metadata"])
+    if process == CALC_DAILY_REVENUE_PROCESS["TRANSFER_DAILY_REVENUE_DATA_TO_KAFKA"]:
+        job.status = JOB_STATUS["COMPLETED"]
     print(f" job {job}")
     job_repo.update(job)
 
@@ -101,7 +104,12 @@ with DAG(
         conn_id='spark_default',
         application='/opt/airflow/project/jobs/data_transfer.py',
         deploy_mode='client',
-        application_args=["transfer_to_iceberg_pid"],
+        application_args=["transfer_to_iceberg_pid", json.dumps({
+            "parsed_bucket": PARSED_BUCKET,
+            "from_date": "{{ ds }}",
+            "to_date": "{{ ds }}",
+            "daily_table": PRODUCT_ITEM_DAILY_TABLE
+        })],
         trigger_rule="none_failed",
         pre_execute=partial(check_and_skip_if_done,
                             CALC_DAILY_REVENUE_PROCESS["TRANSFER_DATA_DAILY_SNAPSHOT_TO_ICEBERG"]),
@@ -117,7 +125,12 @@ with DAG(
         conn_id='spark_default',
         application='/opt/airflow/project/jobs/calc_revenue.py',
         deploy_mode='client',
-        application_args=["calc_daily_sold"],
+        application_args=["calc_daily_sold", json.dumps({
+            "process_date": "{{ ds }}",
+            "state_table": LAST_STATE_PRODUCT_ITEM_TABLE,
+            "daily_table": PRODUCT_ITEM_DAILY_TABLE,
+            "mart_daily_revenue_table": PRODUCT_ITEM_DAILY_REVENUE_TABLE
+        })],
         trigger_rule="none_failed",
         pre_execute=partial(check_and_skip_if_done,
                             CALC_DAILY_REVENUE_PROCESS["CALC_DALY_REVENUE"]),
@@ -133,7 +146,11 @@ with DAG(
         conn_id='spark_default',
         application='/opt/airflow/project/jobs/data_transfer.py',
         deploy_mode='client',
-        application_args=["transfer_to_iceberg_latest_pi"],
+        application_args=["transfer_to_iceberg_latest_pi", json.dumps({
+            "process_date": "{{ ds }}",
+            "daily_table": PRODUCT_ITEM_DAILY_TABLE,
+            "state_table": LAST_STATE_PRODUCT_ITEM_TABLE
+        })],
         trigger_rule="none_failed",
         pre_execute=partial(check_and_skip_if_done,
                             CALC_DAILY_REVENUE_PROCESS["TRANSFER_DATA_DAILY_SNAPSHOT_TO_LATEST"]),
@@ -150,7 +167,11 @@ with DAG(
         application='/opt/airflow/project/jobs/iceberg_2_kafka.py',
         deploy_mode='client',
         trigger_rule="none_failed",
-        application_args=["pid_revenue_2_kafka"],
+        application_args=["pid_revenue_2_kafka", json.dumps({
+            "process_date": "{{ ds }}",
+            "batch": 10,
+            "mart_daily_revenue_table": PRODUCT_ITEM_DAILY_REVENUE_TABLE
+        })],
         pre_execute=partial(check_and_skip_if_done,
                             CALC_DAILY_REVENUE_PROCESS["TRANSFER_DAILY_REVENUE_DATA_TO_KAFKA"]),
         on_success_callback=partial(
