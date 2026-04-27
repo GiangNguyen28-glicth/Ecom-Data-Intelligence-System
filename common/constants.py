@@ -1,8 +1,12 @@
 LAST_STATE_PRODUCT_ITEM_TABLE = 'ecm_catalog.report.last_state_product_item'
+LAST_STATE_PRODUCT_ITEM_STAGING_TABLE = 'ecm_catalog.report.last_state_product_item_staging'
 PRODUCT_ITEM_DAILY_TABLE = 'ecm_catalog.report.product_item_daily'
+PRODUCT_ITEM_DAILY_STAGING_TABLE = 'ecm_catalog.report.product_item_daily_staging'
 PRODUCT_ITEM_DAILY_REVENUE_TABLE = 'ecm_catalog.report.product_item_daily_revenue'
+PRODUCT_ITEM_DAILY_REVENUE_STAGING_TABLE = 'ecm_catalog.report.product_item_daily_revenue_staging'
 PARSED_BUCKET = 'parsed-data'
 RAW_BUCKET = 'raw-data'
+PARSED_BUCKET_STAGING = 'parsed-data-staging'
 JOB_STATUS = {
     "IDLE": 'IDLE',
     "RUNNING": 'RUNNING',

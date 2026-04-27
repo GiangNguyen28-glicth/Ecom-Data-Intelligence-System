@@ -1,24 +1,28 @@
+import json
 import sys
 
-from pyspark.sql.functions import col, broadcast, current_timestamp
-
+from pyspark.sql.functions import col, broadcast, current_timestamp, to_timestamp, expr, lit
 from adapters.iceberg_spark_adapter import iceberg_spark_adapter
-from common.constants import LAST_STATE_PRODUCT_ITEM_TABLE, PRODUCT_ITEM_DAILY_TABLE, PRODUCT_ITEM_DAILY_REVENUE_TABLE
-from helpers.helpers import Helper
 
 
 class CalcRevenue:
     def __init__(self):
         self.spark = iceberg_spark_adapter.spark
 
-    def calc_daily_sold(self):
-        now = current_timestamp()
-        current_date = Helper.get_current_date()
-        process_date = f"{current_date['year']}-{current_date['month']}-{current_date['day']}"
-        # process_date = f"{current_date['year']}-{current_date['month']}-17"
-        print("Process date:", process_date)
-        daily_df = self.spark.read.table(PRODUCT_ITEM_DAILY_TABLE).filter(col("crawledDateMs") >= process_date)
-        state_df = self.spark.read.table(LAST_STATE_PRODUCT_ITEM_TABLE)
+    def calc_daily_sold(self, config):
+        process_date = config["process_date"]
+        state_table = config["state_table"]
+        daily_table = config["daily_table"]
+        mart_daily_revenue_table = config["mart_daily_revenue_table"]
+        print("Config:", config)
+        daily_df = (
+            self.spark.read.table(daily_table)
+            .filter(
+                (col("crawledDateMs") >= to_timestamp(lit(process_date))) &
+                (col("crawledDateMs") < expr(f"timestamp('{process_date}') + INTERVAL 1 DAY"))
+            )
+        )
+        state_df = self.spark.read.table(state_table)
         joined_df = daily_df.alias("daily").join(
             broadcast(state_df).alias("state"),
             col("daily.id") == col("state.id"),
@@ -34,24 +38,25 @@ class CalcRevenue:
                 "gmv",
                 col("dailySold") * col("daily.sellPrice")
             )
-            .withColumn("createdDate", now)
+            .withColumn("createdDate", current_timestamp())
             .select(
                 col("daily.id"),
                 col("daily.price"),
                 col("daily.sellPrice"),
                 col("createdDate"),
                 col("dailySold"),
-                col("gmv")
+                col("gmv"),
+                col("daily.crawledDateMs")
             )
         )
-        result_df.writeTo(PRODUCT_ITEM_DAILY_REVENUE_TABLE).overwritePartitions()
+        result_df.writeTo(mart_daily_revenue_table).overwritePartitions()
+
 
 if __name__ == "__main__":
     job = CalcRevenue()
-
     mode = sys.argv[1]
-
+    config = json.loads(sys.argv[2])
     if mode == "calc_daily_sold":
-        job.calc_daily_sold()
+        job.calc_daily_sold(config)
     else:
         raise ValueError("Invalid mode")

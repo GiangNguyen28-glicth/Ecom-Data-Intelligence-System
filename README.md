@@ -10,3 +10,16 @@
 --master local[*] \
 --driver-memory 2g \
 /opt/spark-apps/main.py
+
+
+dbt docs generate
+dbt docs serve --host 0.0.0.0 --port 8080
+
+snapshots iceberg
+
+snapshot_id: ID của snapshot
+parent_id: snapshot cha (giúp trace lineage)
+operation: loại operation (append, overwrite, delete, …)
+committed_at: thời gian commit
+manifest_list: đường dẫn manifest
+summary: metadata (record count, file count,...)
