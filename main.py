@@ -1,4 +1,5 @@
 # This is a sample Python script.
+import clickhouse_connect
 from pyspark.sql.functions import col, max, year, dayofmonth, month, to_date
 from sqlalchemy.sql.ddl import CreateTable
 
@@ -6,6 +7,7 @@ from adapters.iceberg_spark_adapter import iceberg_spark_adapter
 from adapters.minio_spark_adapter import minio_spark_adapter
 from common.constants import PRODUCT_ITEM_DAILY_TABLE, LAST_STATE_PRODUCT_ITEM_TABLE, PRODUCT_ITEM_DAILY_REVENUE_TABLE, \
     PARSED_BUCKET, PRODUCT_ITEM_DAILY_REVENUE_STAGING_TABLE
+from configs.settings import settings
 from example.ecm.ecm_olist import ECMOlist
 from example.nasa_http_log.nasa_http_log import NasaHttpLog
 from example.unknown.iceberg import Iceberg
@@ -25,12 +27,52 @@ from schema.report import product_item_daily_schema, raw_content_schema
 
 # Press Ctrl+F5 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+import  requests
 
-
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press F9 to toggle the breakpoint.
-
+def validate_data_sync_to_clickhouse(**kwargs):
+    try:
+        consumer_group_url = "/api/clusters/My%20Kafka%20Cluster/consumer-groups/clickhouse_consumer_group"
+        res = requests.get(f"{settings.kafka_api_url}{consumer_group_url}", timeout=30)
+        res.raise_for_status()
+        partitions = res.json()["partitions"]
+        print("Get kafka partitions")
+        clickhouse_ingest_topic_staging_partition = list(filter(lambda p: p["topic"] == "clickhouse_ingest_topic_staging", partitions)).pop()
+        if clickhouse_ingest_topic_staging_partition is None:
+            return False
+        print("Get clickhouse ingest topic staging partition")
+        ch_client = clickhouse_connect.get_client(host=settings.clickhouse_host, database=settings.clickhouse_db,
+                                                  port=settings.clickhouse_port, username=settings.clickhouse_username, password=settings.clickhouse_password)
+        result_clickhouse = ch_client.query("""
+                            SELECT
+                                assignments.topic, assignments.current_offset
+                            FROM system.kafka_consumers
+                            WHERE database = 'report'
+                              AND table = 'clickhouse_ingest_topic_staging'
+                        """)
+        result_clickhouse = list(result_clickhouse.named_results()).pop()
+        if result_clickhouse is None:
+            return False
+        print(result_clickhouse)
+        clickhouse_kafka_current_offset = result_clickhouse["assignments.current_offset"].pop()
+        current_offset = clickhouse_ingest_topic_staging_partition["currentOffset"]
+        end_offset = clickhouse_ingest_topic_staging_partition["endOffset"]
+        print("Current offset", current_offset)
+        print("End offset", end_offset)
+        print("clickhouse_kafka_current_offset:", clickhouse_kafka_current_offset)
+        is_kafka_sync_success = clickhouse_ingest_topic_staging_partition["currentOffset"] == clickhouse_ingest_topic_staging_partition["endOffset"]
+        print("is_kafka_sync_success: {}".format(is_kafka_sync_success))
+        if clickhouse_kafka_current_offset == -1001:
+            print("Clickhouse inconsistencies. Use kafa info")
+            return is_kafka_sync_success
+        is_clickhouse_sync_success = clickhouse_kafka_current_offset == clickhouse_ingest_topic_staging_partition["endOffset"]
+        is_sync_success = is_kafka_sync_success and is_clickhouse_sync_success
+        print("is_sync_success: {}".format(is_sync_success))
+        return is_sync_success
+        print("clickhouse_kafka_current_offset: ",clickhouse_kafka_current_offset)
+        print("clickhouse_ingest_topic_staging_partition: ", clickhouse_ingest_topic_staging_partition)
+    except Exception as e:
+        print("Exception:", e)
+        return False
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
@@ -45,13 +87,14 @@ if __name__ == '__main__':
     # migrate_parsed_data = MigrateParsedData()
     # migrate_parsed_data.migrate_parsed_data()
     # calc_revenue = CalcRevenue()
-    create_report_table = CreateReportTable()
+    # create_report_table = CreateReportTable()
     # create_report_table.create_database()
     # create_report_table.create_pid_table()
-    iceberg_spark_adapter.truncate_table(PRODUCT_ITEM_DAILY_REVENUE_STAGING_TABLE)
-    iceberg_spark_adapter.drop_table(PRODUCT_ITEM_DAILY_REVENUE_STAGING_TABLE)
-    create_report_table.create_revenue_table()
+    # iceberg_spark_adapter.truncate_table(PRODUCT_ITEM_DAILY_REVENUE_STAGING_TABLE)
+    # iceberg_spark_adapter.drop_table(PRODUCT_ITEM_DAILY_REVENUE_STAGING_TABLE)
+    # create_report_table.create_revenue_table()
     # create_report_table.create_state_table()
+    # iceberg_spark_adapter.spark.s
     # iceberg_2_kafka = Iceberg2Kafka()
     # iceberg_2_kafka.load_pid_revenue()
     # create_report_table.create_revenue_table()
@@ -76,4 +119,25 @@ if __name__ == '__main__':
     # nasaInstance.show_data()
     # nasaInstance.main()
 
-    # See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    # consumer_group_url = "/api/clusters/My%20Kafka%20Cluster/consumer-groups/clickhouse_consumer_group"
+    # res = requests.get(f"{settings.kafka_api_url}{consumer_group_url}", timeout=30)
+    # res.raise_for_status()
+    # partitions = res.json()["partitions"]
+    # clickhouse_ingest_topic_staging_partition = list(filter(lambda p: p["topic"] == "clickhouse_ingest_topic_staging",
+    #                                                    partitions))[0]
+    # print(clickhouse_ingest_topic_staging_partition)
+
+    # ch_client = clickhouse_connect.get_client(host=settings.clickhouse_host, database=settings.clickhouse_db,port=8123, username="default", password="default")
+    # result = ch_client.query("""
+    #                 SELECT
+    #                     assignments.topic, assignments.current_offset
+    #                 FROM system.kafka_consumers
+    #                 WHERE database = 'report'
+    #                   AND table = 'clickhouse_ingest_topic_staging'
+    #             """)
+    #
+    # result = list(result.named_results())
+    # clickhouse_ingest_topic_staging_row = result.pop()
+    # current_offset = clickhouse_ingest_topic_staging_row["current_offset"].pop()
+    # print(clickhouse_ingest_topic_staging_row["assignments.current_offset"].pop())
+    validate_data_sync_to_clickhouse()

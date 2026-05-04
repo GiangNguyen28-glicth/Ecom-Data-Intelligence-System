@@ -1,16 +1,19 @@
 import json
 from dataclasses import asdict
+from datetime import timedelta
 from functools import partial
-
+import boto3
 from airflow import DAG
 from airflow.exceptions import AirflowSkipException
 from airflow.operators.python import PythonOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+from airflow.sensors.python import PythonSensor
 from psycopg2.extras import Json
 
 from common.constants import JOB_STATUS, POSTGRESQL_CONN, CALC_DAILY_REVENUE_PROCESS, SPARK_AIRFLOW_DEFAULT_CONFIG, \
     LAST_STATE_PRODUCT_ITEM_TABLE, PRODUCT_ITEM_DAILY_TABLE, PRODUCT_ITEM_DAILY_REVENUE_TABLE, PARSED_BUCKET
+from configs.settings import settings
 from helpers.helpers import Helper
 from model.job import Job, JobUpdate
 from repositories.job_repository import JobRepository
@@ -89,14 +92,50 @@ def check_and_skip_if_done(process, context):
         raise AirflowSkipException(f"Skipped because {process} is already completed.")
 
 
+def check_data_ready(**context):
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=settings.minio_endpoint,
+        aws_access_key_id=settings.minio_access_key,
+        aws_secret_access_key=settings.minio_secret_key,
+        region_name="us-east-1"
+    )
+
+    process_date = context['logical_date'].strftime("%Y-%m-%d")
+    # print(f"process_date: {process_date}")
+    bucket = Helper.get_bucket(PARSED_BUCKET)
+    year, month, day = [int(x) for x in process_date.split("-")]
+
+    prefix = f"year={year}/month={month}/day={day}/"
+
+    response = s3.list_objects_v2(
+        Bucket=PARSED_BUCKET,
+        Prefix=prefix,
+        MaxKeys=1
+    )
+    is_existed_data = "Contents" in response
+    print(f"is_existed_data: {is_existed_data}")
+    return is_existed_data
+
+
 with DAG(
         dag_id="daily_revenue_calc",
         default_args=default_args,
         schedule_interval=None,
+        # schedule_interval="0 1 * * *",
 ) as dag:
     init_job = PythonOperator(
         task_id="init_job_tracking",
         python_callable=init_job_tracking,
+        trigger_rule="none_failed",
+    )
+
+    wait_for_data_ready = PythonSensor(
+        task_id="wait_for_data_ready",
+        python_callable=check_data_ready,
+        poke_interval=10,
+        timeout=60 * 60 * 6,
+        mode="poke",
     )
 
     transfer_to_iceberg_pid = SparkSubmitOperator(
@@ -180,4 +219,4 @@ with DAG(
             **SPARK_AIRFLOW_DEFAULT_CONFIG
         }
     )
-    init_job >> transfer_to_iceberg_pid >> calc_daily_revenue >> transfer_to_iceberg_latest_pi >> pid_revenue_2_kafka
+    wait_for_data_ready >> init_job >> transfer_to_iceberg_pid >> calc_daily_revenue >> transfer_to_iceberg_latest_pi >> pid_revenue_2_kafka

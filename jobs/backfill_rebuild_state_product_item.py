@@ -17,11 +17,6 @@ class RebuildProductLatestState:
         df = iceberg_spark_adapter.get_table_by_version(LAST_STATE_PRODUCT_ITEM_TABLE, snapshot_id)
         df.writeTo(state_product_item_staging_table).createOrReplace()
 
-    # def build_state_product_item_staging(self, config):
-    #
-    #     paths = Helper.get_paths_by_minio_format_n_time_range(process_date, process_date)
-    #     df = self.spark.read.parquet(*paths)
-
 
 if __name__ == "__main__":
     job = RebuildProductLatestState()

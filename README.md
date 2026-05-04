@@ -23,3 +23,6 @@ operation: loại operation (append, overwrite, delete, …)
 committed_at: thời gian commit
 manifest_list: đường dẫn manifest
 summary: metadata (record count, file count,...)
+
+remove all container
+docker rm -f $(docker ps -aq)

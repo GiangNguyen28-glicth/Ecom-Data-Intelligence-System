@@ -3,4 +3,4 @@
 __pycache__
 .env
 dbt/*
-!dbt/models
+!dbt/ecm_dbt_proj/models

@@ -1,12 +1,11 @@
 import json
 import sys
 
-from pyspark.sql.functions import col, to_json, struct, monotonically_increasing_id, floor, collect_list, to_date
+from pyspark.sql.functions import col, to_json, struct, monotonically_increasing_id, floor, collect_list, to_date, lit, \
+    date_add
 
 from adapters.iceberg_spark_adapter import iceberg_spark_adapter
-from common.constants import PRODUCT_ITEM_DAILY_REVENUE_TABLE
 from configs.settings import settings
-from helpers.helpers import Helper
 
 
 class Iceberg2Kafka:
@@ -15,10 +14,15 @@ class Iceberg2Kafka:
 
     def pid_revenue_2_kafka(self, config):
         batch = config["batch"]
-        process_date = config['process_date']
+        from_date = config['from_date']
+        to_date_val = config['to_date']
+        output_topic = config['output_topic']
         mart_daily_revenue_table = config["mart_daily_revenue_table"]
-        print("Process date:", process_date)
-        df = self.spark.read.table(mart_daily_revenue_table).filter(to_date("createdDate") == process_date)
+        print("Config:", config)
+        df = self.spark.read.table(mart_daily_revenue_table) .filter(
+            (col("crawledDateMs") >= to_date(lit(from_date))) &
+            (col("crawledDateMs") < date_add(to_date(lit(to_date_val)), 1))
+        )
         df = df.withColumn("_row_id", monotonically_increasing_id())
         df = df.withColumn("_group_id", floor(col("_row_id") / batch))
         df = df.withColumn("packed_row", struct("*"))
@@ -27,7 +31,7 @@ class Iceberg2Kafka:
         df_kafka = df_batch.select(to_json(col("data_array")).alias("value"))
         df_kafka.write.format("kafka") \
             .option("kafka.bootstrap.servers", settings.kafka_host) \
-            .option("topic", "clickhouse_ingest_topic") \
+            .option("topic", output_topic) \
             .save()
         print("Batch Job Completed Successfully!")
 

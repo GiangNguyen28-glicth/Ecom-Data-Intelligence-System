@@ -67,6 +67,22 @@ class DataTransfer:
                   VALUES (s.id, s.sold, s.crawledDateMs)
             """)
 
+    def check_data_ready(self, config):
+        process_date = config["process_date"]
+        year, month, day = [int(x) for x in process_date.split("-")]
+        bucket = Helper.get_bucket(config["parsed_bucket"])
+        df = self.spark.read.parquet(bucket) \
+            .filter((col("year") == year) & (col("month") == month) & (col("day") == day))
+
+        count = df.limit(1).count()
+
+        if count > 0:
+            print(f"Data found for {process_date}")
+            return True
+        else:
+            print(f"No data yet for {process_date}")
+            return False
+
 
 if __name__ == "__main__":
     job = DataTransfer()
@@ -79,5 +95,7 @@ if __name__ == "__main__":
         job.transfer_to_iceberg_pid(config)
     elif mode == "transfer_to_iceberg_latest_pi":
         job.transfer_to_iceberg_latest_pi(config)
+    elif mode == "check_data_ready":
+        job.check_data_ready(config)
     else:
         raise ValueError("Invalid mode")

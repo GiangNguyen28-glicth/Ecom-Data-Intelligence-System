@@ -11,7 +11,7 @@ from common.constants import SPARK_AIRFLOW_DEFAULT_CONFIG, PARSED_BUCKET_STAGING
 
 # ===== CONFIG =====
 FROM_DATE = "2026-04-21"
-TO_DATE = "2026-04-25"
+TO_DATE = "2026-04-24"
 
 
 def generate_dates():
@@ -67,11 +67,29 @@ with DAG("backfill_transform_raw_data") as dag:
         deploy_mode='client',
         application_args=["transfer_to_iceberg_pid", json.dumps({
             "parsed_bucket": PARSED_BUCKET_STAGING,
-            "from_date": "{{ ds }}",
-            "to_date": "{{ ds }}",
+            "from_date": FROM_DATE,
+            "to_date": TO_DATE,
             "daily_table": PRODUCT_ITEM_DAILY_STAGING_TABLE
         })],
         trigger_rule="none_failed",
+        conf={
+            **SPARK_AIRFLOW_DEFAULT_CONFIG
+        }
+    )
+
+    pid_revenue_2_kafka = SparkSubmitOperator(
+        task_id='pid_revenue_2_kafka',
+        conn_id='spark_default',
+        application='/opt/airflow/project/jobs/iceberg_2_kafka.py',
+        deploy_mode='client',
+        trigger_rule="none_failed",
+        application_args=["pid_revenue_2_kafka", json.dumps({
+            "from_date": FROM_DATE,
+            "to_date": TO_DATE,
+            "output_topic": "clickhouse_ingest_topic_staging",
+            "batch": 10,
+            "mart_daily_revenue_table": PRODUCT_ITEM_DAILY_REVENUE_STAGING_TABLE
+        })],
         conf={
             **SPARK_AIRFLOW_DEFAULT_CONFIG
         }
@@ -125,5 +143,6 @@ with DAG("backfill_transform_raw_data") as dag:
         transform_raw_2_parsed_bucket,
         create_state_staging_table,
         transfer_to_iceberg_pid,
-        *task_groups
+        *task_groups,
+        pid_revenue_2_kafka
     )
