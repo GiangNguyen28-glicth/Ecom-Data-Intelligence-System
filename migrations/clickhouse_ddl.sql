@@ -37,3 +37,33 @@ FROM (
 );
 
 --DROP VIEW report.kafka_to_stats_mv;
+
+CREATE TABLE report.product_item_report_metrics
+(
+    id String,                         -- product_id
+
+    period_type LowCardinality(String), -- 'week' | 'month'
+    period_start Date,                 -- start of week / month
+    shard UInt64,
+    total_sold UInt64,
+    total_gmv Float64,
+
+    avg_price Float64,
+    avg_sell_price Float64,
+
+    last_crawled_at DateTime,
+
+    -- metadata
+    created_at DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree()
+
+PARTITION BY toYYYYMM(toDate(last_crawled_at))
+
+ORDER BY (
+    id,
+    period_type,
+    shard
+)
+
+SETTINGS index_granularity = 8192;

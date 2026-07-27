@@ -13,11 +13,6 @@ default_args = {
     "retries": 5
 }
 
-def is_synced_success_kafka_2_clickhouse(partition):
-    if partition.topic != "clickhouse_ingest_topic_staging":
-        return False
-    return partition["currentOffset"] == partition["endOffset"]
-
 def validate_data_sync_to_clickhouse(**kwargs):
     try:
         consumer_group_url = "/api/clusters/My%20Kafka%20Cluster/consumer-groups/clickhouse_consumer_group"
@@ -69,6 +64,7 @@ with DAG(
         task_id="validate_data_sync_to_clickhouse",
         python_callable=validate_data_sync_to_clickhouse
     )
+
     dbt_run = DockerOperator(
         task_id="dbt_run",
         image="dbt-runtime:1.0.0",
@@ -85,3 +81,5 @@ with DAG(
         auto_remove=True
 
     )
+
+    validate_data_sync_to_clickhouse >> dbt_run

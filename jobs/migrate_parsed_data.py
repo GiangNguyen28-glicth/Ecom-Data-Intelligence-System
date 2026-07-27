@@ -8,7 +8,6 @@ spark = SparkSession.builder.getOrCreate()
 bucket = "s3a://parsed-data"
 output = "s3a://parsed-data-partitioned"
 
-# 👉 List các ngày bạn muốn migrate (có thể generate động)
 dates = [
     {"year": 2026, "month": 4, "day": 17},
     {"year": 2026, "month": 4, "day": 20},
@@ -36,7 +35,6 @@ class MigrateParsedData:
                 .withColumn("day", lit(d["day"]))
             )
 
-            # 👉 write lại theo partition chuẩn
             df.write \
                 .mode("append") \
                 .partitionBy("year", "month", "day") \

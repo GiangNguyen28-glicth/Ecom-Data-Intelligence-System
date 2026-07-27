@@ -1,5 +1,7 @@
 # This is a sample Python script.
-import clickhouse_connect
+import configparser
+
+# import clickhouse_connect
 from pyspark.sql.functions import col, max, year, dayofmonth, month, to_date
 from sqlalchemy.sql.ddl import CreateTable
 
@@ -15,6 +17,12 @@ from example.unknown.unknown import Unknown
 from helpers.helpers import Helper
 from jobs.data_transfer import DataTransfer
 from jobs.migrate_parsed_data import MigrateParsedData
+from jobs.opensanctions import Opensanctions
+from jobs.opensanctions_validate_weight import OpensanctionsValidateWeight
+from jobs.visualize_report import OpensanctionsVisualizeWeight
+from jobs.report_reader import OpensanctionsReportReader
+from jobs.validate_date_report import OpensanctionsBirthDateReport
+
 from jobs.transform_raw_data import TransformRawData
 from migrations.report import pid_revenue_ddl
 from jobs.calc_revenue import CalcRevenue
@@ -29,54 +37,59 @@ from schema.report import product_item_daily_schema, raw_content_schema
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 import  requests
 
-def validate_data_sync_to_clickhouse(**kwargs):
-    try:
-        consumer_group_url = "/api/clusters/My%20Kafka%20Cluster/consumer-groups/clickhouse_consumer_group"
-        res = requests.get(f"{settings.kafka_api_url}{consumer_group_url}", timeout=30)
-        res.raise_for_status()
-        partitions = res.json()["partitions"]
-        print("Get kafka partitions")
-        clickhouse_ingest_topic_staging_partition = list(filter(lambda p: p["topic"] == "clickhouse_ingest_topic_staging", partitions)).pop()
-        if clickhouse_ingest_topic_staging_partition is None:
-            return False
-        print("Get clickhouse ingest topic staging partition")
-        ch_client = clickhouse_connect.get_client(host=settings.clickhouse_host, database=settings.clickhouse_db,
-                                                  port=settings.clickhouse_port, username=settings.clickhouse_username, password=settings.clickhouse_password)
-        result_clickhouse = ch_client.query("""
-                            SELECT
-                                assignments.topic, assignments.current_offset
-                            FROM system.kafka_consumers
-                            WHERE database = 'report'
-                              AND table = 'clickhouse_ingest_topic_staging'
-                        """)
-        result_clickhouse = list(result_clickhouse.named_results()).pop()
-        if result_clickhouse is None:
-            return False
-        print(result_clickhouse)
-        clickhouse_kafka_current_offset = result_clickhouse["assignments.current_offset"].pop()
-        current_offset = clickhouse_ingest_topic_staging_partition["currentOffset"]
-        end_offset = clickhouse_ingest_topic_staging_partition["endOffset"]
-        print("Current offset", current_offset)
-        print("End offset", end_offset)
-        print("clickhouse_kafka_current_offset:", clickhouse_kafka_current_offset)
-        is_kafka_sync_success = clickhouse_ingest_topic_staging_partition["currentOffset"] == clickhouse_ingest_topic_staging_partition["endOffset"]
-        print("is_kafka_sync_success: {}".format(is_kafka_sync_success))
-        if clickhouse_kafka_current_offset == -1001:
-            print("Clickhouse inconsistencies. Use kafa info")
-            return is_kafka_sync_success
-        is_clickhouse_sync_success = clickhouse_kafka_current_offset == clickhouse_ingest_topic_staging_partition["endOffset"]
-        is_sync_success = is_kafka_sync_success and is_clickhouse_sync_success
-        print("is_sync_success: {}".format(is_sync_success))
-        return is_sync_success
-        print("clickhouse_kafka_current_offset: ",clickhouse_kafka_current_offset)
-        print("clickhouse_ingest_topic_staging_partition: ", clickhouse_ingest_topic_staging_partition)
-    except Exception as e:
-        print("Exception:", e)
-        return False
+# def validate_data_sync_to_clickhouse(**kwargs):
+#     try:
+#         consumer_group_url = "/api/clusters/My%20Kafka%20Cluster/consumer-groups/clickhouse_consumer_group"
+#         res = requests.get(f"{settings.kafka_api_url}{consumer_group_url}", timeout=30)
+#         res.raise_for_status()
+#         partitions = res.json()["partitions"]
+#         print("Get kafka partitions")
+#         clickhouse_ingest_topic_staging_partition = list(filter(lambda p: p["topic"] == "clickhouse_ingest_topic_staging", partitions)).pop()
+#         if clickhouse_ingest_topic_staging_partition is None:
+#             return False
+#         print("Get clickhouse ingest topic staging partition")
+#         ch_client = clickhouse_connect.get_client(host=settings.clickhouse_host, database=settings.clickhouse_db,
+#                                                   port=settings.clickhouse_port, username=settings.clickhouse_username, password=settings.clickhouse_password)
+#         result_clickhouse = ch_client.query("""
+#                             SELECT
+#                                 assignments.topic, assignments.current_offset
+#                             FROM system.kafka_consumers
+#                             WHERE database = 'report'
+#                               AND table = 'clickhouse_ingest_topic_staging'
+#                         """)
+#         result_clickhouse = list(result_clickhouse.named_results()).pop()
+#         if result_clickhouse is None:
+#             return False
+#         print(result_clickhouse)
+#         clickhouse_kafka_current_offset = result_clickhouse["assignments.current_offset"].pop()
+#         current_offset = clickhouse_ingest_topic_staging_partition["currentOffset"]
+#         end_offset = clickhouse_ingest_topic_staging_partition["endOffset"]
+#         print("Current offset", current_offset)
+#         print("End offset", end_offset)
+#         print("clickhouse_kafka_current_offset:", clickhouse_kafka_current_offset)
+#         is_kafka_sync_success = clickhouse_ingest_topic_staging_partition["currentOffset"] == clickhouse_ingest_topic_staging_partition["endOffset"]
+#         print("is_kafka_sync_success: {}".format(is_kafka_sync_success))
+#         if clickhouse_kafka_current_offset == -1001:
+#             print("Clickhouse inconsistencies. Use kafa info")
+#             return is_kafka_sync_success
+#         is_clickhouse_sync_success = clickhouse_kafka_current_offset == clickhouse_ingest_topic_staging_partition["endOffset"]
+#         is_sync_success = is_kafka_sync_success and is_clickhouse_sync_success
+#         print("is_sync_success: {}".format(is_sync_success))
+#         return is_sync_success
+#         print("clickhouse_kafka_current_offset: ",clickhouse_kafka_current_offset)
+#         print("clickhouse_ingest_topic_staging_partition: ", clickhouse_ingest_topic_staging_partition)
+#     except Exception as e:
+#         print("Exception:", e)
+#         return False
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     # dataTransferInstance = DataTransfer()
+    opensanctions = OpensanctionsBirthDateReport()
+    config = {
+        "bucket": "test-data"
+    }
+    opensanctions.process(config)
     # transform_raw_data = TransformRawData()
     # config = {
     #     "from_date": "2026-04-24",
@@ -140,4 +153,4 @@ if __name__ == '__main__':
     # clickhouse_ingest_topic_staging_row = result.pop()
     # current_offset = clickhouse_ingest_topic_staging_row["current_offset"].pop()
     # print(clickhouse_ingest_topic_staging_row["assignments.current_offset"].pop())
-    validate_data_sync_to_clickhouse()
+    # validate_data_sync_to_clickhouse()

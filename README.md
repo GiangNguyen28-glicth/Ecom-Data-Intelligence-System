@@ -26,3 +26,7 @@ summary: metadata (record count, file count,...)
 
 remove all container
 docker rm -f $(docker ps -aq)
+
+dbt run \
+  --select mart_weekly_report \
+  --vars '{"from_date": "2026-04-20", "to_date": "2026-04-26"}'

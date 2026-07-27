@@ -3,7 +3,7 @@ clickhouse-service:
   outputs:
     dev:
       type: clickhouse
-      schema: default
+      schema: report
       host: host.docker.internal
       port: 8123
       user: default

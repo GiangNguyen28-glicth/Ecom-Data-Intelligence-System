@@ -6,6 +6,7 @@ import boto3
 from airflow import DAG
 from airflow.exceptions import AirflowSkipException
 from airflow.operators.python import PythonOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.sensors.python import PythonSensor
@@ -102,8 +103,7 @@ def check_data_ready(**context):
     )
 
     process_date = context['logical_date'].strftime("%Y-%m-%d")
-    # print(f"process_date: {process_date}")
-    bucket = Helper.get_bucket(PARSED_BUCKET)
+    print(f"process_date: {process_date}")
     year, month, day = [int(x) for x in process_date.split("-")]
 
     prefix = f"year={year}/month={month}/day={day}/"
@@ -122,6 +122,7 @@ with DAG(
         dag_id="daily_revenue_calc",
         default_args=default_args,
         schedule_interval=None,
+        catchup=False
         # schedule_interval="0 1 * * *",
 ) as dag:
     init_job = PythonOperator(
@@ -219,4 +220,15 @@ with DAG(
             **SPARK_AIRFLOW_DEFAULT_CONFIG
         }
     )
-    wait_for_data_ready >> init_job >> transfer_to_iceberg_pid >> calc_daily_revenue >> transfer_to_iceberg_latest_pi >> pid_revenue_2_kafka
+
+    trigger_week_n_month_revenue_calc_dag = TriggerDagRunOperator(
+        task_id="trigger_week_n_month_revenue_calc_dag",
+        trigger_dag_id="week_n_month_revenue_calc"
+    )
+    wait_for_data_ready >> \
+    init_job >> \
+    transfer_to_iceberg_pid >> \
+    calc_daily_revenue >> \
+    transfer_to_iceberg_latest_pi >> \
+    pid_revenue_2_kafka >> \
+    trigger_week_n_month_revenue_calc_dag

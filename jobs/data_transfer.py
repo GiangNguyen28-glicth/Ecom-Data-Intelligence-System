@@ -3,7 +3,7 @@ import sys
 from datetime import datetime
 
 from pyspark.sql import Window
-from pyspark.sql.functions import col, row_number, to_date
+from pyspark.sql.functions import col, row_number, to_date, weekofyear
 
 from adapters.iceberg_spark_adapter import iceberg_spark_adapter
 from helpers.helpers import Helper
@@ -16,8 +16,8 @@ class DataTransfer:
 
     def transfer_to_iceberg_pid(self, config):
         parsed_bucket = config["parsed_bucket"]
-        from_date= config["from_date"]
-        to_date= config["from_date"]
+        from_date = config["from_date"]
+        to_date = config["from_date"]
         from_year, from_month, from_day = [int(x) for x in from_date.split("-")]
         to_year, to_month, to_day = [int(x) for x in to_date.split("-")]
 
@@ -37,7 +37,11 @@ class DataTransfer:
         df = df.filter(col("sold") > 0).select("id", "sold", "price", "sellPrice", "crawledDateMs")
         window = Window.partitionBy("id") \
             .orderBy(col("crawledDateMs").desc())
-        cleaned_df = df.withColumn("rn", row_number().over(window)).filter(col("rn") == 1).drop("rn")
+        cleaned_df = df \
+            .withColumn("rn", row_number().over(window)) \
+            .filter(col("rn") == 1).drop("rn") \
+            .withColumn("week",weekofyear(col("crawledDateMs"))) \
+            .withColumn("day",weekofyear(col("crawledDateMs")))
         cleaned_df.writeTo(daily_table).overwritePartitions()
 
     def transfer_to_iceberg_latest_pi(self, config):
@@ -89,8 +93,8 @@ if __name__ == "__main__":
 
     mode = sys.argv[1]
     config = json.loads(sys.argv[2])
-    print("Mode: ",mode)
-    print("Config: ",config)
+    print("Mode: ", mode)
+    print("Config: ", config)
     if mode == "transfer_to_iceberg_pid":
         job.transfer_to_iceberg_pid(config)
     elif mode == "transfer_to_iceberg_latest_pi":
